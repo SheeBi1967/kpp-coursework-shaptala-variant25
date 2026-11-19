@@ -6,10 +6,10 @@ import java.sql.SQLException;
 
 public final class DBUtil {
 
-    private static final String URL =
-            "jdbc:mysql://localhost:3306/document_approval";
-    private static final String USER = "kpp_user";
-    private static final String PASSWORD = "kpp_pass_2026";
+    private static final String URL = env("DB_URL", "jdbc:mysql://localhost:3306/document_approval");
+    private static final String USER = env("DB_USER", "root");
+    private static final String PASSWORD = env("DB_PASSWORD", "");
+
     static {
         try {
             Class.forName("com.mysql.cj.jdbc.Driver");
@@ -25,4 +25,8 @@ public final class DBUtil {
         return DriverManager.getConnection(URL, USER, PASSWORD);
     }
 
+    private static String env(String name, String defaultValue) {
+        String value = System.getenv(name);
+        return value == null || value.isEmpty() ? defaultValue : value;
+    }
 }
