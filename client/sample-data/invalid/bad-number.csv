@@ -1,0 +1,3 @@
+author_id;reg_number;title;doc_type;due_date;criticality;dependent_processes
+3;DOC-2026-103;Кошторис на ремонт;Кошторис;2026-12-20;abc;1
+1;DOC-2026-104;Лист-запит до департаменту;Лист;2026-12-22;2;0

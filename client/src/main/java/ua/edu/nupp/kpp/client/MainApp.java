@@ -10,6 +10,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.ProgressBar;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
@@ -24,6 +25,7 @@ import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.logging.Logger;
 
 public class MainApp extends Application {
@@ -36,6 +38,10 @@ public class MainApp extends Application {
     private final TableView<Reviewer> reviewers = new TableView<>();
     private final TableView<Document> documents = new TableView<>();
     private final TableView<ApprovalRequest> requests = new TableView<>();
+    private final Button importCsv = new Button("Імпорт CSV");
+    private final ProgressBar importProgress = new ProgressBar(0);
+    private final Label importStatus = new Label("Імпорт не виконувався");
+    private ImportDocumentsTask importTask;
 
     @Override
     public void start(Stage stage) {
@@ -143,8 +149,8 @@ public class MainApp extends Application {
         Button update = new Button("Змінити");
         Button delete = new Button("Видалити");
         Button refresh = new Button("Оновити");
-        Button importCsv = new Button("Імпорт CSV");
-        Label importStatus = new Label("Імпорт не виконувався");
+        importProgress.setMaxWidth(Double.MAX_VALUE);
+        importStatus.setWrapText(true);
         add.setOnAction(e -> safe(() -> {
             api.addDocument(readDocument(null, authorId, regNumber, title, docType, dueDate,
                     criticality, dependentProcesses));
@@ -162,14 +168,7 @@ public class MainApp extends Application {
             loadAll();
         }));
         refresh.setOnAction(e -> safe(this::loadDocuments));
-        importCsv.setOnAction(e -> safe(() -> {
-            try {
-                DocumentCsvImporter.Result result = new DocumentCsvImporter(api).importFile(CSV_FILE);
-                importStatus.setText("Імпортовано: " + result.imported() + ", пропущено: " + result.skipped());
-            } finally {
-                loadDocuments();
-            }
-        }));
+        importCsv.setOnAction(e -> startImport());
         documents.getSelectionModel().selectedItemProperty().addListener((o, old, d) -> {
             if (d != null) {
                 authorId.setText(String.valueOf(d.getAuthorId()));
@@ -190,7 +189,66 @@ public class MainApp extends Application {
                 new Label("Критичність (1..5)"), criticality,
                 new Label("Кількість залежних процесів"), dependentProcesses,
                 new FlowPane(8, 8, add, update, delete, refresh),
-                new FlowPane(8, 8, importCsv, importStatus)));
+                importCsv, importProgress, importStatus));
+    }
+
+    private void startImport() {
+        if (importTask != null && importTask.isRunning()) {
+            return;
+        }
+        ImportDocumentsTask task = new ImportDocumentsTask(CSV_FILE, api);
+        importTask = task;
+        importCsv.setDisable(true);
+        importProgress.progressProperty().bind(task.progressProperty());
+        importStatus.textProperty().bind(task.messageProperty());
+        task.setOnSucceeded(e -> importSucceeded(task));
+        task.setOnFailed(e -> importFailed(task));
+        Thread thread = new Thread(task, "csv-import");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    private void importSucceeded(ImportDocumentsTask task) {
+        importProgress.progressProperty().unbind();
+        importStatus.textProperty().unbind();
+        importCsv.setDisable(false);
+        importProgress.setProgress(1);
+        if (task.getTotal() == 0) {
+            importStatus.setText("Немає рядків для імпорту");
+        } else {
+            importStatus.setText("Імпортовано: " + task.getValue() + ", пропущено: " + task.getSkipped());
+        }
+        safe(this::loadDocuments);
+        if (task.getSkipped() > 0) {
+            showSkipped(task);
+        }
+    }
+
+    private void importFailed(ImportDocumentsTask task) {
+        importProgress.progressProperty().unbind();
+        importStatus.textProperty().unbind();
+        importCsv.setDisable(false);
+        importProgress.setProgress(0);
+        importStatus.setText("Імпорт завершився помилкою");
+        showError(task.getException());
+        try {
+            loadDocuments();
+        } catch (RuntimeException e) {
+            LOG.warning(e.getMessage());
+        }
+    }
+
+    private void showSkipped(ImportDocumentsTask task) {
+        List<String> problems = task.getProblems();
+        StringBuilder text = new StringBuilder();
+        problems.stream().limit(10).forEach(p -> text.append(p).append('\n'));
+        if (problems.size() > 10) {
+            text.append("… та ще ").append(problems.size() - 10);
+        }
+        Alert alert = new Alert(Alert.AlertType.WARNING, text.toString().trim(), ButtonType.OK);
+        alert.setTitle("Імпорт завершено з пропусками");
+        alert.setHeaderText("Імпортовано: " + task.getValue() + ", пропущено: " + task.getSkipped());
+        alert.showAndWait();
     }
 
     private Pane requestPane() {
@@ -310,11 +368,12 @@ public class MainApp extends Application {
         }
     }
 
-    private void showError(Exception e) {
+    private void showError(Throwable e) {
         String message = e.getMessage() == null ? "Помилка" : e.getMessage();
         Alert alert = new Alert(Alert.AlertType.ERROR, message, ButtonType.OK);
         alert.setTitle("Помилка");
         alert.setHeaderText(null);
+        alert.getDialogPane().setMinWidth(560);
         alert.showAndWait();
     }
 
@@ -336,6 +395,7 @@ public class MainApp extends Application {
     }
 
     public static void main(String[] args) {
+        ClientLogging.init();
         launch(args);
     }
 }

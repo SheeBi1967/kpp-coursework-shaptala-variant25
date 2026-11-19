@@ -145,6 +145,9 @@ public class HttpApprovalClient {
         } catch (IOException e) {
             throw new IllegalStateException("Сервер недоступний. Перевірте, чи запущено Tomcat: " + BASE, e);
         }
+        if (response.statusCode() == 400) {
+            throw new ServerRejectedException(errorText(response));
+        }
         if (response.statusCode() >= 400) {
             throw new IllegalStateException(errorText(response));
         }

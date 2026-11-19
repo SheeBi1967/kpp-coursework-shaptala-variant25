@@ -4,5 +4,8 @@ target/
 *.iml
 out/
 *.log
+*.lck
+logs/
+*.war
 .env
 application-local.properties
